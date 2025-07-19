@@ -1,56 +1,59 @@
-package com.example.demo.controller;
-
-import com.example.demo.model.Doctor;
-import com.example.demo.repository.DoctorRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.Optional;
-
 @RestController
 @RequestMapping("/api/doctors")
 public class DoctorController {
 
     @Autowired
-    private DoctorRepository doctorRepository;
+    private AppointmentService appointmentService;
 
-    // Lấy danh sách tất cả bác sĩ
-    @GetMapping
-    public List<Doctor> getAllDoctors() {
-        return doctorRepository.findAll();
+    // Existing CRUD methods...
+
+    @GetMapping("/{doctorId}/availability")
+    public ResponseEntity<?> getDoctorAvailability(
+        @PathVariable Long doctorId,
+        @RequestParam String date,  // Format: yyyy-MM-dd
+        @RequestHeader("Authorization") String token) {
+
+        // Xác thực token ở đây nếu cần
+        if (!validateToken(token)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid token");
+        }
+
+        // Chuyển đổi ngày sang LocalDate
+        LocalDate localDate;
+        try {
+            localDate = LocalDate.parse(date);
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.badRequest().body("Invalid date format. Expected yyyy-MM-dd");
+        }
+
+        // Gọi service để lấy danh sách khung giờ đã đặt
+        List<LocalTime> bookedSlots = appointmentService.getBookedSlots(doctorId, localDate);
+
+        // Giả sử bác sĩ làm việc từ 8:00 đến 17:00, mỗi khung 1h
+        List<LocalTime> allSlots = IntStream.range(8, 17)
+            .mapToObj(LocalTime::of)
+            .collect(Collectors.toList());
+
+        List<LocalTime> availableSlots = allSlots.stream()
+            .filter(slot -> !bookedSlots.contains(slot))
+            .collect(Collectors.toList());
+
+        return ResponseEntity.ok(availableSlots);
     }
 
-    // Lấy bác sĩ theo ID
-    @GetMapping("/{id}")
-    public Optional<Doctor> getDoctorById(@PathVariable Long id) {
-        return doctorRepository.findById(id);
+    // (Ví dụ đơn giản) Xác thực token giả lập
+    private boolean validateToken(String token) {
+        return token != null && token.startsWith("Bearer ");
     }
+}
+public List<LocalTime> getBookedSlots(Long doctorId, LocalDate date) {
+    List<Appointment> appointments = appointmentRepository.findByDoctorIdAndAppointmentTimeBetween(
+        doctorId,
+        date.atStartOfDay(),
+        date.plusDays(1).atStartOfDay()
+    );
 
-    // Thêm bác sĩ mới
-    @PostMapping
-    public Doctor createDoctor(@RequestBody Doctor doctor) {
-        return doctorRepository.save(doctor);
-    }
-
-    // Cập nhật thông tin bác sĩ
-    @PutMapping("/{id}")
-    public Doctor updateDoctor(@PathVariable Long id, @RequestBody Doctor updatedDoctor) {
-        return doctorRepository.findById(id)
-                .map(doctor -> {
-                    doctor.setName(updatedDoctor.getName());
-                    doctor.setSpecialization(updatedDoctor.getSpecialization());
-                    return doctorRepository.save(doctor);
-                })
-                .orElseGet(() -> {
-                    updatedDoctor.setId(id);
-                    return doctorRepository.save(updatedDoctor);
-                });
-    }
-
-    // Xóa bác sĩ
-    @DeleteMapping("/{id}")
-    public void deleteDoctor(@PathVariable Long id) {
-        doctorRepository.deleteById(id);
-    }
+    return appointments.stream()
+            .map(app -> app.getAppointmentTime().toLocalTime())
+            .collect(Collectors.toList());
 }
