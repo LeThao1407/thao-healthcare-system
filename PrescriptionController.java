@@ -1,41 +1,35 @@
-package com.example.clinic.controller;
-
-import com.example.clinic.model.Prescription;
-import com.example.clinic.service.PrescriptionService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/prescriptions")
 public class PrescriptionController {
 
+    private final PrescriptionService prescriptionService;
+    private final AuthService authService;
+
     @Autowired
-    private PrescriptionService prescriptionService;
-
-    @GetMapping("/patient/{patientId}")
-    public List<Prescription> getPrescriptionsByPatient(@PathVariable Long patientId) {
-        return prescriptionService.getPrescriptionsByPatientId(patientId);
+    public PrescriptionController(PrescriptionService prescriptionService, AuthService authService) {
+        this.prescriptionService = prescriptionService;
+        this.authService = authService;
     }
 
-    @PostMapping
-    public Prescription createPrescription(@RequestBody Prescription prescription) {
-        return prescriptionService.createPrescription(prescription);
-    }
+    @PostMapping("/{token}")
+    public ResponseEntity<?> createPrescription(
+        @PathVariable String token,
+        @Valid @RequestBody PrescriptionRequest prescriptionRequest,
+        BindingResult bindingResult
+    ) {
+        // Kiểm tra lỗi validate dữ liệu đầu vào
+        if (bindingResult.hasErrors()) {
+            return ResponseEntity.badRequest().body(bindingResult.getAllErrors());
+        }
 
-    @GetMapping("/{id}")
-    public Prescription getPrescriptionById(@PathVariable Long id) {
-        return prescriptionService.getPrescriptionById(id);
-    }
+        // Xác thực token
+        if (!authService.validateToken(token)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid or expired token");
+        }
 
-    @PutMapping("/{id}")
-    public Prescription updatePrescription(@PathVariable Long id, @RequestBody Prescription updated) {
-        return prescriptionService.updatePrescription(id, updated);
-    }
+        // Tạo đơn thuốc
+        Prescription prescription = prescriptionService.createPrescription(prescriptionRequest);
 
-    @DeleteMapping("/{id}")
-    public void deletePrescription(@PathVariable Long id) {
-        prescriptionService.deletePrescription(id);
+        return ResponseEntity.status(HttpStatus.CREATED).body(prescription);
     }
 }
