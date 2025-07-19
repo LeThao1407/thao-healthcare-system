@@ -1,59 +1,38 @@
 @RestController
-@RequestMapping("/api/doctors")
+@RequestMapping("/api/{role}/doctor")
 public class DoctorController {
 
-    @Autowired
-    private AppointmentService appointmentService;
+    // Giả sử có service để xác thực token và lấy trạng thái bác sĩ
+    private final AuthService authService;
+    private final DoctorService doctorService;
 
-    // Existing CRUD methods...
+    public DoctorController(AuthService authService, DoctorService doctorService) {
+        this.authService = authService;
+        this.doctorService = doctorService;
+    }
 
     @GetMapping("/{doctorId}/availability")
-    public ResponseEntity<?> getDoctorAvailability(
+    public ResponseEntity<?> checkDoctorAvailability(
+        @PathVariable String role,
         @PathVariable Long doctorId,
-        @RequestParam String date,  // Format: yyyy-MM-dd
-        @RequestHeader("Authorization") String token) {
-
-        // Xác thực token ở đây nếu cần
-        if (!validateToken(token)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid token");
+        @RequestParam String token
+    ) {
+        // Kiểm tra vai trò hợp lệ (ví dụ chỉ patient và admin được truy cập)
+        if (!role.equalsIgnoreCase("patient") && !role.equalsIgnoreCase("admin")) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body("Invalid role");
         }
 
-        // Chuyển đổi ngày sang LocalDate
-        LocalDate localDate;
-        try {
-            localDate = LocalDate.parse(date);
-        } catch (DateTimeParseException e) {
-            return ResponseEntity.badRequest().body("Invalid date format. Expected yyyy-MM-dd");
+        // Xác thực token theo vai trò
+        boolean isTokenValid = authService.validateTokenForRole(token, role);
+        if (!isTokenValid) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body("Invalid or expired token");
         }
 
-        // Gọi service để lấy danh sách khung giờ đã đặt
-        List<LocalTime> bookedSlots = appointmentService.getBookedSlots(doctorId, localDate);
+        // Lấy trạng thái rảnh/bận của bác sĩ (ví dụ true = rảnh)
+        boolean isAvailable = doctorService.isDoctorAvailable(doctorId);
 
-        // Giả sử bác sĩ làm việc từ 8:00 đến 17:00, mỗi khung 1h
-        List<LocalTime> allSlots = IntStream.range(8, 17)
-            .mapToObj(LocalTime::of)
-            .collect(Collectors.toList());
-
-        List<LocalTime> availableSlots = allSlots.stream()
-            .filter(slot -> !bookedSlots.contains(slot))
-            .collect(Collectors.toList());
-
-        return ResponseEntity.ok(availableSlots);
+        return ResponseEntity.ok(Collections.singletonMap("available", isAvailable));
     }
-
-    // (Ví dụ đơn giản) Xác thực token giả lập
-    private boolean validateToken(String token) {
-        return token != null && token.startsWith("Bearer ");
-    }
-}
-public List<LocalTime> getBookedSlots(Long doctorId, LocalDate date) {
-    List<Appointment> appointments = appointmentRepository.findByDoctorIdAndAppointmentTimeBetween(
-        doctorId,
-        date.atStartOfDay(),
-        date.plusDays(1).atStartOfDay()
-    );
-
-    return appointments.stream()
-            .map(app -> app.getAppointmentTime().toLocalTime())
-            .collect(Collectors.toList());
 }
